@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import {
   Send,
   User,
@@ -146,50 +148,19 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
   };
 
   const renderFormattedContent = (content: string) => {
-    const lines = content.split('\n');
-    return (
-      <div className="space-y-1.5 text-xs sm:text-sm leading-relaxed">
-        {lines.map((line, idx) => {
-          const trimmed = line.trim();
-
-          if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
-            return (
-              <div key={idx} className="flex items-start gap-2 pl-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mt-2 shrink-0" />
-                <span dangerouslySetInnerHTML={{ __html: formatInline(trimmed.substring(2)) }} />
-              </div>
-            );
-          }
-
-          if (/^\d+\.\s/.test(trimmed)) {
-            const num = trimmed.match(/^(\d+)\.\s/)?.[1];
-            const rest = trimmed.replace(/^\d+\.\s/, '');
-            return (
-              <div key={idx} className="flex items-start gap-2 pl-2">
-                <span className="font-semibold text-emerald-800 text-xs shrink-0 mt-0.5">{num}.</span>
-                <span dangerouslySetInnerHTML={{ __html: formatInline(rest) }} />
-              </div>
-            );
-          }
-
-          if (!trimmed) {
-            return <div key={idx} className="h-1.5" />;
-          }
-
-          return <p key={idx} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />;
-        })}
-      </div>
-    );
-  };
-
-  const formatInline = (text: string) => {
-    let res = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    res = res.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-stone-900">$1</strong>');
-    res = res.replace(/`(.*?)`/g, '<code class="bg-stone-200/60 px-1 py-0.5 rounded text-xs font-mono">$1</code>');
-    return res;
+    try {
+      const rawHtml = marked.parse(content, { async: false, breaks: true, gfm: true }) as string;
+      // marked does not sanitize its output, so strip scripts, event handlers and unsafe URLs.
+      const safeHtml = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
+      return (
+        <div
+          className="botanist-markdown text-xs sm:text-sm leading-relaxed"
+          dangerouslySetInnerHTML={{ __html: safeHtml }}
+        />
+      );
+    } catch {
+      return <div className="whitespace-pre-wrap text-xs sm:text-sm">{content}</div>;
+    }
   };
 
   return (

@@ -151,7 +151,7 @@ The result page also lists fun botanical facts, common pests and diseases, and p
 * **Three model modes:** Fast (`gemini-3.1-flash-lite`), Standard (`gemini-3.8-flash`), and Complex (`gemini-4-argon`).
 * Suggested starter questions, copy-to-clipboard on every answer, and a clear-conversation button.
 * Chat history is kept when you switch between tabs while the page stays open.
-* Replies are rendered with a small built-in formatter (bullets, numbered lists, bold, inline code) that escapes HTML first, so model output cannot inject markup.
+* Replies are rendered as full Markdown (headings, bullets, numbered lists, bold, italics, code, links, quotes) with `marked`, and the resulting HTML is sanitized with DOMPurify before it reaches the page, so model output cannot inject scripts.
 
 ### 6. Care Guides
 
@@ -247,11 +247,12 @@ Both endpoints return `modelUsed`, and the UI displays it, so users always see w
 | **Frontend** | [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/) |
 | **Styling** | [Tailwind CSS v4](https://tailwindcss.com/) via `@tailwindcss/vite` |
 | **Icons** | [Lucide React](https://lucide.dev/) |
+| **Markdown** | [marked](https://marked.js.org/) for rendering, [DOMPurify](https://github.com/cure53/DOMPurify) for sanitizing |
 | **Build tooling** | [Vite 8](https://vite.dev/), [esbuild](https://esbuild.github.io/), [tsx](https://github.com/privatenumber/tsx) |
 | **Backend** | [Node.js](https://nodejs.org/) and [Express 4](https://expressjs.com/) |
 | **AI SDK** | [`@google/genai`](https://www.npmjs.com/package/@google/genai) |
 | **Models** | Gemini 3.1 Flash-Lite, Gemini 3.8 Flash, Gemini 4 Argon |
-| **Protection** | [`express-rate-limit`](https://www.npmjs.com/package/express-rate-limit), manual input validation, model allowlist |
+| **Protection** | [`express-rate-limit`](https://www.npmjs.com/package/express-rate-limit), manual input validation, model allowlist, DOMPurify |
 | **Configuration** | [dotenv](https://www.npmjs.com/package/dotenv) |
 | **Client storage** | Browser `localStorage` |
 
@@ -487,7 +488,7 @@ Sends a conversation to Dr. Flora and returns the next reply.
 | **Input validation** | MIME-type allowlist, size limits on images, notes, message count, and message length, and a request body limit of 12 MB. |
 | **Cost control** | The client cannot choose arbitrary models. Only three allowlisted model names are accepted. |
 | **Error hygiene** | Raw errors from the Gemini API are logged on the server and replaced with generic messages for the client. |
-| **XSS safety** | Chat output is HTML-escaped before the small Markdown formatter applies bold or code styling. |
+| **XSS safety** | Chat output is parsed as Markdown with `marked`, then sanitized with DOMPurify, which removes scripts, inline event handlers, and unsafe URLs such as `javascript:` links. |
 | **Photo privacy** | Photos are forwarded to the Google Gemini API for analysis and are not written to any server-side database. Photos of plants you add to My Garden are stored in your own browser's `localStorage` and can be removed at any time. |
 | **Dependencies** | `npm audit --omit=dev` reports 0 known vulnerabilities at the time of writing. |
 
@@ -512,7 +513,7 @@ This section records real problems found while building and reviewing the projec
 | 11 | **Chat history was lost** when switching tabs. | Chat state was lifted into `App`, so it survives tab changes. |
 | 12 | **Misleading labels** claimed a single model analysed every result. | The UI shows the real `modelUsed`, and presets are labelled as sample data. |
 | 13 | **"Water All" watered everything**, including plants that were not due. | It now updates only plants that are due or overdue. |
-| 14 | **Rendering AI text as HTML** risks script injection. | Text is escaped first, and only a tiny set of formatting rules is applied afterwards. |
+| 14 | **Rendering AI text as HTML** risks script injection. | Replies are rendered as Markdown with `marked`, and the HTML is sanitized with DOMPurify before it is inserted into the page. |
 
 ---
 
