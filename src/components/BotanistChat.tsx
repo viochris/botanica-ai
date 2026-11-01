@@ -68,9 +68,11 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
     setIsSending(true);
 
     try {
-      const historyPayload = [...messages, userMessage].map((m) => ({
+      // The server accepts at most 30 messages of 4000 characters each,
+      // so send only the most recent turns and trim any very long reply.
+      const historyPayload = [...messages, userMessage].slice(-30).map((m) => ({
         role: m.role,
-        content: m.content,
+        content: m.content.slice(0, 4000),
       }));
 
       let taskComplexity = 'general';

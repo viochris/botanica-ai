@@ -49,7 +49,7 @@
 10. [Production Build and Deployment](#production-build-and-deployment)
 11. [API Reference](#api-reference)
 12. [Security and Privacy](#security-and-privacy)
-13. [Engineering Challenges and Solutions](#engineering-challenges-and-solutions)
+13. [Design Challenges and Solutions](#design-challenges-and-solutions)
 14. [Known Limitations](#known-limitations)
 15. [Roadmap](#roadmap)
 16. [Troubleshooting](#troubleshooting)
@@ -71,9 +71,10 @@ At a glance:
 | **AI** | Google Gemini via `@google/genai`, with structured JSON output and cascaded model fallback |
 | **Languages** | TypeScript (client and server) |
 | **Data storage** | None on the server. The garden collection lives in the browser's `localStorage` |
+| **Hosting** | Live demo on Vercel (the Express app runs as a serverless function). Can also run as a normal Node.js server |
 | **Status** | Version 1.0.0, portfolio project |
 
-The project was first scaffolded with Google AI Studio and then reviewed and hardened by hand: dependency conflicts, the production static-file path, input validation, rate limiting, and several UI bugs were fixed. The details are documented in [Engineering Challenges and Solutions](#engineering-challenges-and-solutions).
+The design decisions behind it (API proxy, model fallback, structured output, input validation) are described in [Design Challenges and Solutions](#design-challenges-and-solutions).
 
 ---
 
@@ -139,7 +140,7 @@ The result page also lists fun botanical facts, common pests and diseases, and p
 * Save any scanned or preset plant to your collection with one click.
 * Each plant shows a watering status such as *Due today* or *3d overdue*, based on its recommended interval.
 * **Water All Due** marks only the plants that are due or overdue, so plants that do not need water are left untouched.
-* Search by nickname or species, and filter by *All*, *Needs Water*, or *Healthy*.
+* Search by nickname or species, and filter by *All*, *Needs Water*, or *Thriving*.
 * Open the full care sheet of a saved plant again, or ask Dr. Flora about it directly.
 * The collection is stored in the browser's `localStorage`. If the browser's storage quota is exceeded, a visible warning is shown instead of failing silently.
 * A first-time visitor sees two demo plants so that the tab is never empty.
@@ -262,7 +263,11 @@ Both endpoints return `modelUsed`, and the UI displays it, so users always see w
 
 ```text
 botanica-ai/
+├── api/
+│   └── index.ts                # Vercel serverless entry: re-exports the Express app
 ├── img/                        # README images (4 files)
+├── public/
+│   └── assets/                 # Static assets
 ├── src/
 │   ├── components/
 │   │   ├── Header.tsx          # Top navigation and quick-scan button
@@ -280,10 +285,15 @@ botanica-ai/
 │   ├── main.tsx                # React entry point
 │   └── index.css               # Tailwind import and custom styles
 ├── server.ts                   # Express API: /api/identify, /api/chat, /api/health
+├── index.html                  # HTML entry point for the Vite app
 ├── vite.config.ts              # Vite and Tailwind configuration
+├── vercel.json                 # Routes /api/* to the serverless function
 ├── tsconfig.json
 ├── package.json
+├── bun.lock                    # Dependency lockfile
+├── metadata.json               # App name, description, and camera permission
 ├── .env.example                # Environment variable template
+├── .gitignore
 ├── LICENSE
 └── README.md
 ```
@@ -335,7 +345,7 @@ The six sample presets, My Garden, and Care Guides work without a key. Only the 
 | `GEMINI_API_KEY` | Yes, for scan and chat | none | Your Google Gemini API key. Read only on the server. |
 | `PORT` | No | `3000` | Port the server listens on. |
 | `NODE_ENV` | No | unset | `production` serves the built files from `dist/` instead of running Vite's dev middleware. `npm start` sets it for you through `cross-env`. |
-| `APP_URL` | No | none | Listed in `.env.example` for Google AI Studio only. This app does not read it, so you can leave it out. |
+| `APP_URL` | No | none | Appears in `.env.example`, but the app does not read it. You can leave it out. |
 
 Environment files are loaded in this order: `.env.local` first, then `.env`. Real environment variables set by your host take precedence over both files.
 
@@ -365,13 +375,29 @@ npm start
 
 ### Deploying
 
-Botanica AI is a long-running Node.js server, so it can be hosted on any platform that runs a Node process (for example a VPS, Render, Railway, Fly.io, or Google Cloud Run).
+#### Vercel (used for the live demo)
+
+The repository includes `vercel.json` and `api/index.ts`. Vercel serves the built Vite app as static files, and `vercel.json` routes every `/api/*` request to `api/index.ts`, which re-exports the Express app from `server.ts`. The server only starts listening on a port when it is **not** running on Vercel.
+
+1. Import the repository in Vercel. The Vite framework preset is detected automatically.
+2. Open **Settings → Environment Variables** and add `GEMINI_API_KEY` (the exact name, no quotes) for the **Production** environment.
+3. **Redeploy.** Environment variables only apply to deployments created after they were saved.
+4. If a scan or chat request fails, open **Logs → Runtime** in the Vercel dashboard and look for `Error during plant identification` or `Error in botanical chat`. The server logs the real error there and returns only a generic message to the browser.
+
+Vercel limits the size of a request body (about 4.5 MB). Photos are resized to at most 1024 px in the browser before upload, so normal scans stay far below that limit.
+
+#### Any Node.js host
+
+Botanica AI can also run as a normal long-running Node.js server (for example on a VPS, Render, Railway, Fly.io, or Google Cloud Run).
 
 1. Set the build command to `npm run build` and the start command to `npm start`.
 2. Set the environment variable `GEMINI_API_KEY` in the platform's settings. Do not put it in the repository.
 3. `npm start` sets `NODE_ENV=production` for you. If your platform runs the server some other way, set it yourself.
-4. The server calls `app.set('trust proxy', 1)`, so the rate limiter sees each visitor's real IP address when the app runs behind one reverse proxy. If your platform has more than one proxy layer, adjust this value in `server.ts`.
-5. **Protect your key.** A public demo spends your quota. Use a dedicated key for the demo and set a quota or budget cap in your Google AI Studio or Google Cloud console.
+
+#### For every host
+
+* The server calls `app.set('trust proxy', 1)`, so the rate limiter sees each visitor's real IP address when the app runs behind one reverse proxy. If your platform has more than one proxy layer, adjust this value in `server.ts`.
+* **Protect your key.** A public demo spends your quota. Use a dedicated key for the demo and set a quota or budget cap in your Google AI Studio or Google Cloud console.
 
 ---
 
@@ -457,9 +483,9 @@ Sends a conversation to Dr. Flora and returns the next reply.
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
-| `messages` | array | Yes | 1 to 30 items. Each needs `role` (`user` or `model`) and a string `content` of at most 4000 characters. |
+| `messages` | array | Yes | 1 to 30 items. Each needs a `role` (`user` or `model`; any other value is treated as `user`) and a string `content` of at most 4000 characters. |
 | `model` | string | No | Must be one of `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.1-flash-lite`. Anything else falls back to `gemini-3.8-flash`. |
-| `plantContext` | object | No | The scanned plant's data. Used to focus the conversation. |
+| `plantContext` | object | No | The plant to focus on. The app sends `commonName` and `scientificName`. Used to focus the conversation. |
 | `taskComplexity` | string | No | `general`, `fast`, or `complex`. Overrides `model` when set to `fast` or `complex`. |
 
 **Success response**
@@ -494,26 +520,27 @@ Sends a conversation to Dr. Flora and returns the next reply.
 
 ---
 
-## Engineering Challenges and Solutions
+## Design Challenges and Solutions
 
-This section records real problems found while building and reviewing the project, and how each one was solved.
+Problems this design had to solve, and how each one is handled in the code.
 
 | # | Challenge | Solution |
 |---|---|---|
-| 1 | **Keeping the API key secret** while the app calls an AI service from the browser. | All AI calls go through an Express proxy. The key is read from server environment variables only. |
-| 2 | **Unreliable free-tier models.** Quota limits and temporary overloads made single-model calls fail. | Cascaded fallback across three Gemini models, with `modelUsed` returned and shown in the UI. |
+| 1 | **Keeping the API key secret** while the app calls an AI service. | All AI calls go through an Express proxy. The key is read from server environment variables only. |
+| 2 | **Unreliable free-tier models.** Quota limits and temporary overloads can make a single-model call fail. | Cascaded fallback across three Gemini models, with `modelUsed` returned and shown in the UI. |
 | 3 | **Unpredictable AI output** is hard to render. | A response schema forces JSON, and matching TypeScript interfaces make every section type-safe. |
-| 4 | **Open endpoints could drain the API quota.** | Rate limiting, strict input validation, a model allowlist, a smaller body limit, and generic error messages. |
-| 5 | **Rate limiting behind a proxy** would count every visitor as one IP. | `trust proxy` configuration, verified by sending requests with different `X-Forwarded-For` values. |
-| 6 | **Large camera photos** slowed uploads and filled `localStorage` (about 5 MB) quickly. | Client-side canvas resizing to 1024 px JPEG, plus a visible warning when saving to storage fails. |
-| 7 | **`npm install` failed with an `ERESOLVE` error.** `esbuild` 0.25 conflicted with the peer requirement of Vite 8. | `esbuild` was raised to `^0.28.0`. |
-| 8 | **Production build returned 404.** The bundled server ran from `dist/`, so the static path resolved to `dist/dist`. | The static directory is now resolved from `process.cwd()`. |
-| 9 | **API key not loaded locally.** `dotenv` read only `.env` while the docs said `.env.local`. | The server loads `.env.local` first, then `.env`. |
-| 10 | **Camera stayed on** after the user switched tabs. | The camera stream is stopped in an effect cleanup when the scanner unmounts. A native-capture fallback covers denied permissions. |
-| 11 | **Chat history was lost** when switching tabs. | Chat state was lifted into `App`, so it survives tab changes. |
-| 12 | **Misleading labels** claimed a single model analysed every result. | The UI shows the real `modelUsed`, and presets are labelled as sample data. |
-| 13 | **"Water All" watered everything**, including plants that were not due. | It now updates only plants that are due or overdue. |
-| 14 | **Rendering AI text as HTML** risks script injection. | Replies are rendered as Markdown with `marked`, and the HTML is sanitized with DOMPurify before it is inserted into the page. |
+| 4 | **Open endpoints could drain the API quota.** | Rate limiting, strict input validation, a model allowlist, a request body limit, and generic error messages. |
+| 5 | **Rate limiting behind a proxy** would count every visitor as one IP. | `trust proxy` is configured so that limits apply per visitor. |
+| 6 | **Large camera photos** slow uploads and fill `localStorage` (about 5 MB) quickly. | Client-side canvas resizing to 1024 px JPEG, plus a visible warning when saving to storage fails. |
+| 7 | **Serving the built app from a bundled server.** The bundle runs from `dist/`, so a path relative to the bundle would point to the wrong folder. | The static directory is resolved from `process.cwd()`. |
+| 8 | **Local and hosted configuration.** Keys live in different places on a laptop and on a host. | The server loads `.env.local` first, then `.env`. Variables set by the host take precedence over both. |
+| 9 | **Running on a serverless platform and as a normal server.** | `server.ts` exports the Express app for Vercel and only calls `listen` when the `VERCEL` variable is not set. |
+| 10 | **The camera must not stay on** after the user leaves the scanner. | The stream is stopped in an effect cleanup when the scanner unmounts. A native-capture fallback covers denied permissions. |
+| 11 | **Chat history should survive tab changes.** | Chat state lives in `App`, not in the chat component. |
+| 12 | **Long chats could exceed the server's input limits** (30 messages, 4000 characters each). | The client sends only the most recent 30 messages and trims each to 4000 characters. |
+| 13 | **Users should know which model answered.** | The UI shows the real `modelUsed`, and sample presets are labelled as sample data. |
+| 14 | **"Water All Due" must not water plants that are not due.** | It updates only plants that are due or overdue. |
+| 15 | **Rendering AI text as HTML** risks script injection. | Replies are rendered as Markdown with `marked`, and the HTML is sanitized with DOMPurify before it is inserted into the page. |
 
 ---
 
@@ -525,9 +552,10 @@ Being upfront about what the project does not do yet:
 * **Toxicity data is not verified** against an authoritative database such as the ASPCA list for scanned plants. Always double-check before relying on it for pet safety.
 * **No accounts or cloud sync.** The garden lives in one browser on one device. Clearing site data deletes it.
 * **Local photo storage is limited.** Browsers allow only a few megabytes in `localStorage`, so a large collection of photos will eventually hit the quota.
-* **In-memory rate limiting.** Counters reset when the server restarts and are not shared across multiple server instances.
+* **In-memory rate limiting.** Counters reset when the server restarts and are not shared across instances. On a serverless host such as Vercel, each function instance keeps its own counters, so the limit is approximate.
 * **No automated tests yet.** The project is checked with TypeScript's strict type-checker and manual testing.
 * **English-only interface.**
+* **Chat context window.** Dr. Flora receives only the 30 most recent messages of a conversation.
 * **Model availability depends on Google.** Model names and free-tier quotas may change over time.
 
 ---
@@ -568,8 +596,9 @@ Ideas and pull requests for any of these are welcome.
 
 | Problem | Likely cause and fix |
 |---|---|
-| `npm install` fails with `ERESOLVE` | Use a supported Node version and run a plain `npm install`. Avoid `--force`. Make sure `esbuild` is `^0.28.0` in `package.json`. |
+| `npm install` fails | Use a supported Node version (20.19+ or 22.12+) and run a plain `npm install`. Avoid `--force`. |
 | Scan or chat returns *"Gemini API key is not configured"* (503) | `GEMINI_API_KEY` is missing. Create `.env.local` from `.env.example`, add your key, and restart the server. |
+| Scan or chat returns a 500 error | The request reached the server, but the Gemini call failed (invalid key, exhausted quota, or an unavailable model). Check the server logs: **Logs → Runtime** on Vercel, or the terminal when running locally. |
 | *"Too many requests"* (429) | The limit of 20 requests per 15 minutes per IP was reached. Wait and try again. |
 | `npm start` fails or shows a 404 page | The `dist/` folder does not exist yet. Run `npm run build` first (see [Production Build](#production-build-and-deployment)). |
 | The live camera does not open | Browsers allow camera access only on `localhost` or HTTPS, and only after permission is granted. The app falls back to the native camera dialog automatically. |

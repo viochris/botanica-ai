@@ -433,6 +433,7 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
                 type="text"
                 value={userNotes}
                 onChange={(e) => setUserNotes(e.target.value)}
+                maxLength={380}
                 placeholder="Add any observations, room lighting, or watering history..."
                 className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700/20 focus:border-emerald-700 transition-colors placeholder:text-stone-400 min-h-[42px]"
               />
