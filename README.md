@@ -294,7 +294,7 @@ botanica-ai/
 ### Prerequisites
 
 * [Node.js](https://nodejs.org/) **20.19+ or 22.12+**
-* npm (included with Node.js)
+* npm (included with Node.js). The repository also ships a `bun.lock`, so `bun install` works too.
 * A Google Gemini API key from [Google AI Studio](https://ai.google.dev/)
 
 ### Installation
@@ -333,7 +333,8 @@ The six sample presets, My Garden, and Care Guides work without a key. Only the 
 |---|---|---|---|
 | `GEMINI_API_KEY` | Yes, for scan and chat | none | Your Google Gemini API key. Read only on the server. |
 | `PORT` | No | `3000` | Port the server listens on. |
-| `NODE_ENV` | No | unset | Set to `production` to serve the built files from `dist/` instead of running Vite's dev middleware. |
+| `NODE_ENV` | No | unset | `production` serves the built files from `dist/` instead of running Vite's dev middleware. `npm start` sets it for you through `cross-env`. |
+| `APP_URL` | No | none | Listed in `.env.example` for Google AI Studio only. This app does not read it, so you can leave it out. |
 
 Environment files are loaded in this order: `.env.local` first, then `.env`. Real environment variables set by your host take precedence over both files.
 
@@ -343,7 +344,7 @@ Environment files are loaded in this order: `.env.local` first, then `.env`. Rea
 |---|---|
 | `npm run dev` | Starts the full-stack dev server (Express and Vite middleware) with `tsx`. |
 | `npm run build` | Builds the client with Vite and bundles `server.ts` to `dist/server.js` with esbuild. |
-| `npm start` | Runs `dist/server.js`. **Set `NODE_ENV=production` first** (see below). |
+| `npm start` | Runs `dist/server.js` with `NODE_ENV=production` already set (through `cross-env`, so it works on Windows, macOS, and Linux). Run `npm run build` first. |
 | `npm run lint` | Type-checks the project with `tsc --noEmit`. |
 | `npm run clean` | Removes build artifacts. |
 
@@ -356,22 +357,10 @@ Environment files are loaded in this order: `.env.local` first, then `.env`. Rea
 npm run build
 
 # 2. Start the production server
-NODE_ENV=production npm start
+npm start
 ```
 
-Equivalent commands on Windows:
-
-```powershell
-# PowerShell
-$env:NODE_ENV="production"; npm start
-```
-
-```bat
-:: Command Prompt
-set NODE_ENV=production && npm start
-```
-
-> **Why `NODE_ENV=production` matters:** the server uses it to decide between Vite's development middleware and the static files in `dist/`. Many hosting platforms set it automatically, but a local `npm start` does not.
+> **About `NODE_ENV`:** the server uses it to decide between Vite's development middleware and the static files in `dist/`. The `start` script already sets `NODE_ENV=production` through `cross-env`, so no extra setup is needed on any operating system.
 
 ### Deploying
 
@@ -379,7 +368,7 @@ Botanica AI is a long-running Node.js server, so it can be hosted on any platfor
 
 1. Set the build command to `npm run build` and the start command to `npm start`.
 2. Set the environment variable `GEMINI_API_KEY` in the platform's settings. Do not put it in the repository.
-3. Make sure `NODE_ENV=production` is set.
+3. `npm start` sets `NODE_ENV=production` for you. If your platform runs the server some other way, set it yourself.
 4. The server calls `app.set('trust proxy', 1)`, so the rate limiter sees each visitor's real IP address when the app runs behind one reverse proxy. If your platform has more than one proxy layer, adjust this value in `server.ts`.
 5. **Protect your key.** A public demo spends your quota. Use a dedicated key for the demo and set a quota or budget cap in your Google AI Studio or Google Cloud console.
 
@@ -581,7 +570,7 @@ Ideas and pull requests for any of these are welcome.
 | `npm install` fails with `ERESOLVE` | Use a supported Node version and run a plain `npm install`. Avoid `--force`. Make sure `esbuild` is `^0.28.0` in `package.json`. |
 | Scan or chat returns *"Gemini API key is not configured"* (503) | `GEMINI_API_KEY` is missing. Create `.env.local` from `.env.example`, add your key, and restart the server. |
 | *"Too many requests"* (429) | The limit of 20 requests per 15 minutes per IP was reached. Wait and try again. |
-| `npm start` shows Vite development output | `NODE_ENV` is not set. Run `NODE_ENV=production npm start` (see [Production Build](#production-build-and-deployment)). |
+| `npm start` fails or shows a 404 page | The `dist/` folder does not exist yet. Run `npm run build` first (see [Production Build](#production-build-and-deployment)). |
 | The live camera does not open | Browsers allow camera access only on `localhost` or HTTPS, and only after permission is granted. The app falls back to the native camera dialog automatically. |
 | *"Could not save plant collection"* warning | The browser's storage quota is full. Remove a few plants, or clear old data. |
 | Port 3000 is already in use | Start with another port, for example `PORT=3001 npm run dev`. |
