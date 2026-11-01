@@ -15,7 +15,9 @@
 
 <br />
 
-<img src="img/demo.gif" alt="Botanica AI demo: scan a plant, read the diagnosis and care plan, save it to My Garden, and ask Dr. Flora" width="860" />
+<img src="img/02-result-page.png" alt="Botanica AI result page: plant photo, names, family, confidence score, summary, and leaf health diagnostic" width="860" />
+
+<sub>A scan result: identification, confidence score, the model that produced it, and the leaf health diagnostic.</sub>
 
 <br />
 
@@ -161,19 +163,19 @@ The result page also lists fun botanical facts, common pests and diseases, and p
 
 ## Screenshots
 
-> The full flow (upload or camera, analysis, result, saving a plant, and asking Dr. Flora) is shown in the demo GIF at the top of this page. All images live in the [`img/`](./img) folder.
+> The scan result is shown at the top of this README. Below are the photo that was used for that demo scan and the other main screens. All images live in the [`img/`](./img) folder.
 
-### Scan result
+### Demo input photo
 
-![Result page with plant photo, names, family, confidence score, summary, and the leaf health diagnostic](img/01-result-page.png)
+<img src="img/01-demo-input-photo.jpg" alt="Aloe vera photo uploaded to the scanner for the demo" width="420" />
 
-The result page shows the plant photo, common and scientific names, family, a model-estimated confidence score, which model produced the answer, a short summary, and the leaf health diagnostic with symptoms, diagnosis, and treatment.
+*The aloe vera photo that was uploaded to the scanner to produce the result shown at the top of this page.*
 
 ### My Garden and Dr. Flora
 
 | My Garden | Dr. Flora chat |
 |:---:|:---:|
-| ![My Garden with watering status, search, filters, and the Water All Due button](img/02-my-garden.png) | ![Dr. Flora chat with model selector and plant focus badge](img/03-dr-flora-chat.png) |
+| ![My Garden with watering status, search, filters, and the Water All Due button](img/03-my-garden.png) | ![Dr. Flora chat with model selector and plant focus badge](img/04-dr-flora-chat.png) |
 | Watering status per plant, search, filters, and the **Water All Due** action. | Multi-turn chat focused on the scanned plant, with Fast, Standard, and Complex model modes. |
 
 ---
@@ -259,7 +261,7 @@ Both endpoints return `modelUsed`, and the UI displays it, so users always see w
 
 ```text
 botanica-ai/
-├── img/                        # README demo GIF and screenshots (4 files)
+├── img/                        # README images (4 files)
 ├── src/
 │   ├── components/
 │   │   ├── Header.tsx          # Top navigation and quick-scan button

@@ -99,6 +99,7 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
   }, []);
 
   // Camera start with automatic fallback to native device camera capture
+  // Camera start with automatic fallback to native device camera capture
   const startCamera = async () => {
     setErrorMessage(null);
 
@@ -110,9 +111,17 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
 
     try {
       setIsCameraActive(true);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+      } catch {
+        // Fallback for laptops/desktops with front-facing or standard webcams
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -123,7 +132,7 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
     } catch (err: any) {
       console.warn('Live camera stream not permitted, falling back to native capture dialog:', err?.message || err);
       setIsCameraActive(false);
-      // Fallback: Trigger device camera dialog directly
+      // Fallback: Trigger device camera dialog directly on mobile
       if (cameraInputRef.current) {
         cameraInputRef.current.click();
       } else {
@@ -160,8 +169,25 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
       clearInterval(stepInterval);
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Server returned error (${response.status})`);
+        let errorMsg = '';
+        try {
+          const errData = await response.json();
+          errorMsg = errData.error || errData.message;
+        } catch {
+          // Response body was not JSON (e.g. 404 HTML page)
+        }
+        if (!errorMsg) {
+          if (response.status === 404) {
+            errorMsg = 'API endpoint /api/identify not found (404). If running on Vercel, verify that serverless functions are active and GEMINI_API_KEY is configured in Vercel project environment variables.';
+          } else if (response.status === 503) {
+            errorMsg = 'Gemini API key is not configured on the server (503). Please set GEMINI_API_KEY in your environment or Vercel settings.';
+          } else if (response.status === 413) {
+            errorMsg = 'Image file size is too large to process. Please try a smaller photo.';
+          } else {
+            errorMsg = `Server returned error (${response.status}). Please try again or test with a sample plant.`;
+          }
+        }
+        throw new Error(errorMsg);
       }
 
       const result = await response.json();
@@ -413,31 +439,69 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
             </div>
           </div>
 
-          {/* Error Message Display with quick recovery actions */}
+          {/* Error Message Display with intelligent recovery actions */}
           {errorMessage && (
-            <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-xl flex items-start gap-3 text-amber-900 text-xs">
+            <div className="p-4 bg-amber-50/95 border border-amber-200 rounded-xl flex items-start gap-3 text-amber-900 text-xs">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div className="space-y-2 flex-1">
+              <div className="space-y-2.5 flex-1">
                 <div>
-                  <p className="font-semibold">{errorMessage}</p>
-                  <p className="text-amber-800 mt-0.5">
-                    If browser camera permissions are blocked by the preview window, you can upload an image file or test immediately with a preset plant:
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-semibold text-stone-900 text-xs sm:text-sm">{errorMessage}</p>
+                    <button
+                      type="button"
+                      onClick={() => setErrorMessage(null)}
+                      className="p-1 text-stone-400 hover:text-stone-700 rounded transition-colors shrink-0"
+                      title="Dismiss error"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-stone-600 mt-1 leading-relaxed">
+                    {errorMessage.toLowerCase().includes('camera') || errorMessage.toLowerCase().includes('permission')
+                      ? 'Camera access was blocked by your browser settings. You can grant camera permission in your browser address bar or select one of the recovery actions below:'
+                      : errorMessage.includes('404')
+                      ? 'The AI identification route was not found (404). If deployed on Vercel, ensure the API route is active and GEMINI_API_KEY is configured in Vercel project environment variables. You can still test immediately with a preset:'
+                      : errorMessage.includes('503') || errorMessage.toLowerCase().includes('gemini_api_key')
+                      ? 'The Gemini API key is missing or service is unavailable. Please verify your GEMINI_API_KEY. You can still test all plant intelligence features using any preset below:'
+                      : 'You can retry uploading, open the camera, or instantly explore with a botanical preset:'}
                   </p>
                 </div>
+
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-3.5 py-2 bg-white border border-amber-300 rounded-lg font-semibold text-amber-900 hover:bg-amber-100 transition-colors shadow-2xs min-h-[40px]"
+                    onClick={() => {
+                      setErrorMessage(null);
+                      onSelectSamplePreset(SAMPLE_PLANTS[0]);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold transition-colors shadow-xs min-h-[38px]"
                   >
-                    Upload Photo File
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Try Sample Plant (Instant)</span>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => cameraInputRef.current?.click()}
-                    className="px-3.5 py-2 bg-white border border-amber-300 rounded-lg font-semibold text-amber-900 hover:bg-amber-100 transition-colors shadow-2xs min-h-[40px]"
+                    onClick={() => {
+                      setErrorMessage(null);
+                      startCamera();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-stone-300 hover:bg-stone-50 rounded-lg font-semibold text-stone-800 transition-colors shadow-2xs min-h-[38px]"
                   >
-                    Open Camera App
+                    <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Open Camera</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMessage(null);
+                      fileInputRef.current?.click();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-stone-300 hover:bg-stone-50 rounded-lg font-semibold text-stone-800 transition-colors shadow-2xs min-h-[38px]"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-stone-600" />
+                    <span>Upload from Gallery</span>
                   </button>
                 </div>
               </div>
