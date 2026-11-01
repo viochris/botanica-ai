@@ -1,42 +1,30 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Send,
-  Sparkles,
-  Bot,
   User,
   Trash2,
   Copy,
   Check,
-  Cpu,
   Info,
   X,
-  RefreshCw,
   Lightbulb,
+  AlertTriangle,
 } from 'lucide-react';
 import { ChatMessage, PlantIdentificationData } from '../types';
 
 interface BotanistChatProps {
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   currentPlantContext: PlantIdentificationData | null;
   onClearPlantContext: () => void;
 }
 
 export const BotanistChat: React.FC<BotanistChatProps> = ({
+  messages,
+  setMessages,
   currentPlantContext,
   onClearPlantContext,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    return [
-      {
-        id: 'welcome-1',
-        role: 'model',
-        content:
-          "Hello, green thumb! I'm **Dr. Flora**, your master horticulturist and botanical companion. Whether you're troubleshooting yellowing foliage, designing an organic potting blend, planning seasonal pruning, or caring for your windowsill collection, I'm here to help. What's growing in your world today?",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        modelUsed: 'gemini-3.8-flash',
-      },
-    ];
-  });
-
   const [inputPrompt, setInputPrompt] = useState('');
   const [selectedModel, setSelectedModel] = useState<'gemini-4-argon' | 'gemini-3.8-flash' | 'gemini-3.1-flash-lite'>('gemini-3.8-flash');
   const [isSending, setIsSending] = useState(false);
@@ -78,13 +66,11 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
     setIsSending(true);
 
     try {
-      // Build conversation payload for multi-turn history
       const historyPayload = [...messages, userMessage].map((m) => ({
         role: m.role,
         content: m.content,
       }));
 
-      // Task complexity recommendation
       let taskComplexity = 'general';
       if (selectedModel === 'gemini-4-argon') {
         taskComplexity = 'complex';
@@ -159,7 +145,6 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
     ]);
   };
 
-  // Simple Markdown renderer for readable bullet points, bold text & code
   const renderFormattedContent = (content: string) => {
     const lines = content.split('\n');
     return (
@@ -167,7 +152,6 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
         {lines.map((line, idx) => {
           const trimmed = line.trim();
 
-          // Bullet list item
           if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
             return (
               <div key={idx} className="flex items-start gap-2 pl-2">
@@ -177,7 +161,6 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
             );
           }
 
-          // Numbered list item
           if (/^\d+\.\s/.test(trimmed)) {
             const num = trimmed.match(/^(\d+)\.\s/)?.[1];
             const rest = trimmed.replace(/^\d+\.\s/, '');
@@ -189,12 +172,10 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
             );
           }
 
-          // Empty line
           if (!trimmed) {
             return <div key={idx} className="h-1.5" />;
           }
 
-          // Regular paragraph
           return <p key={idx} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />;
         })}
       </div>
@@ -202,14 +183,11 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
   };
 
   const formatInline = (text: string) => {
-    // Escape HTML then apply bold & code formatting
     let res = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
-    // Bold
     res = res.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-stone-900">$1</strong>');
-    // Inline code
     res = res.replace(/`(.*?)`/g, '<code class="bg-stone-200/60 px-1 py-0.5 rounded text-xs font-mono">$1</code>');
     return res;
   };
@@ -233,7 +211,7 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
           </div>
         </div>
 
-        {/* Model Selector Bar (Swipeable on mobile) */}
+        {/* Model Selector Bar */}
         <div className="flex items-center gap-2 w-full sm:w-auto justify-between">
           <div className="flex items-center gap-1 p-1 bg-stone-100 rounded-lg text-xs overflow-x-auto w-full sm:w-auto scrollbar-none">
             <button
@@ -285,6 +263,14 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
         </div>
       </div>
 
+      {/* Visible AI Disclaimer */}
+      <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-900 shadow-2xs">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <p className="leading-relaxed">
+          AI-generated information. Diagnosis and pet-toxicity details may be inaccurate; consult a vet or plant specialist before acting.
+        </p>
+      </div>
+
       {/* Active Focused Plant Badge (if available) */}
       {currentPlantContext && (
         <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-emerald-900">
@@ -316,7 +302,6 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
                 key={message.id}
                 className={`flex gap-3 max-w-[85%] ${isUser ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
               >
-                {/* Avatar */}
                 <div
                   className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${
                     isUser
@@ -327,7 +312,6 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
                   {isUser ? <User className="w-4 h-4" /> : 'F'}
                 </div>
 
-                {/* Bubble Container */}
                 <div className="space-y-1">
                   <div
                     className={`rounded-2xl p-4 text-xs sm:text-sm leading-relaxed ${
@@ -343,7 +327,6 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
                     )}
                   </div>
 
-                  {/* Message Metadata & Copy Button */}
                   <div
                     className={`flex items-center gap-2 text-[10px] text-stone-400 px-1 ${
                       isUser ? 'justify-end' : 'justify-start'
@@ -375,7 +358,6 @@ export const BotanistChat: React.FC<BotanistChatProps> = ({
             );
           })}
 
-          {/* Typing Indicator */}
           {isSending && (
             <div className="flex gap-3 mr-auto max-w-[80%]">
               <div className="w-8 h-8 rounded-full bg-emerald-800 text-emerald-100 flex items-center justify-center font-serif-display font-bold text-xs shrink-0">

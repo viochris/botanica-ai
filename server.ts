@@ -2,22 +2,41 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
 import { GoogleGenAI, Type } from '@google/genai';
 
+// Load .env.local first, then fallback to .env
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// Increase payload limit for high-resolution plant photos
-app.use(express.json({ limit: '30mb' }));
-app.use(express.urlencoded({ extended: true, limit: '30mb' }));
+// Body parser with 12mb payload limit
+app.use(express.json({ limit: '12mb' }));
+app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
-// Initialize Google GenAI client
+// Rate limiter: max 20 requests per 15 minutes per IP on /api/identify and /api/chat
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes.' },
+});
+
+// Initialize Google GenAI client and check key at startup
 const apiKey = process.env.GEMINI_API_KEY || '';
+if (!apiKey) {
+  console.error(
+    'CRITICAL: GEMINI_API_KEY environment variable is missing. /api/identify and /api/chat will return 503 until configured.'
+  );
+}
+
 const ai = new GoogleGenAI({
   apiKey,
   httpOptions: {
@@ -26,9 +45,6 @@ const ai = new GoogleGenAI({
     },
   },
 });
-
-// Helper for delay in backoff
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // JSON Schema for structured plant identification & care instructions
 const plantAnalysisSchema = {
@@ -204,18 +220,45 @@ const plantAnalysisSchema = {
 };
 
 // API Route: Plant Identification & Health Analysis
-// Features: "Analyze images" using gemini-4-argon with graceful fallback to gemini-3.8-flash and retry logic
-app.post('/api/identify', async (req: Request, res: Response): Promise<void> => {
+// Features: Analyze images using cascaded fallback: gemini-3.1-flash-lite -> gemini-3.8-flash -> gemini-4-argon
+app.post('/api/identify', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { imageBase64, mimeType = 'image/jpeg', userNotes = '' } = req.body;
-
-    if (!imageBase64) {
-      res.status(400).json({ error: 'Image data is required.' });
+    if (!apiKey) {
+      res.status(503).json({
+        error: 'Gemini API key is not configured. Please set GEMINI_API_KEY in your environment or .env.local file.',
+      });
       return;
     }
 
-    // Clean base64 string
+    const { imageBase64, mimeType = 'image/jpeg', userNotes = '' } = req.body;
+
+    // Validate imageBase64: must be a non-empty string with maximum ~10MB
+    if (typeof imageBase64 !== 'string' || !imageBase64.trim()) {
+      res.status(400).json({ error: 'Image data is required and must be a base64 string.' });
+      return;
+    }
+
     const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const approxByteSize = (cleanBase64.length * 3) / 4;
+    if (approxByteSize > 10 * 1024 * 1024) {
+      res.status(400).json({ error: 'Image size exceeds the maximum limit of ~10MB.' });
+      return;
+    }
+
+    // Validate mimeType: must be image/jpeg, image/png, or image/webp
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (mimeType && !allowedMimeTypes.includes(mimeType)) {
+      res.status(400).json({ error: 'Invalid mimeType. Allowed types are image/jpeg, image/png, or image/webp.' });
+      return;
+    }
+
+    // Validate userNotes: maximum 500 characters
+    if (userNotes !== undefined && userNotes !== null) {
+      if (typeof userNotes !== 'string' || userNotes.length > 500) {
+        res.status(400).json({ error: 'userNotes must be a string with a maximum of 500 characters.' });
+        return;
+      }
+    }
 
     const imagePart = {
       inlineData: {
@@ -247,7 +290,7 @@ Always return valid JSON adhering strictly to the response schema.
 
     const textPart = { text: promptText };
 
-    // Try models in cascade: gemini-3.1-flash-lite (reliable on free tier) -> gemini-3.8-flash -> gemini-4-argon
+    // Try models in cascade: gemini-3.1-flash-lite (fast & high quota) -> gemini-3.8-flash -> gemini-4-argon
     const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-4-argon'];
     let lastError: any = null;
     let response: any = null;
@@ -268,7 +311,6 @@ Always return valid JSON adhering strictly to the response schema.
         break;
       } catch (err: any) {
         lastError = err;
-        // Quiet fallback to avoid noisy platform logs on free tier rate limits
       }
     }
 
@@ -287,18 +329,24 @@ Always return valid JSON adhering strictly to the response schema.
   } catch (error: any) {
     console.error('Error during plant identification:', error);
     res.status(500).json({
-      error: error?.message || 'Failed to analyze plant photo. Please check your image and try again.',
+      error: 'Failed to analyze plant photo. Please check your image and try again.',
     });
   }
 });
 
 // API Route: Multi-turn Chatbot ("Dr. Flora")
-// Features: Maintains conversation history, scrollable thread, specific role, model routing:
-// - gemini-4-argon for complex tasks
-// - gemini-3.8-flash for general tasks
-// - gemini-3.1-flash-lite for fast tasks
-app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
+// Model routing with strict allowlist
+const ALLOWED_CHAT_MODELS = ['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+
+app.post('/api/chat', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (!apiKey) {
+      res.status(503).json({
+        error: 'Gemini API key is not configured. Please set GEMINI_API_KEY in your environment or .env.local file.',
+      });
+      return;
+    }
+
     const {
       messages = [],
       model = 'gemini-3.8-flash',
@@ -306,19 +354,29 @@ app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
       taskComplexity = 'general',
     } = req.body;
 
-    if (!Array.isArray(messages) || messages.length === 0) {
-      res.status(400).json({ error: 'Messages array is required.' });
+    // Validate messages array: max 30 items
+    if (!Array.isArray(messages) || messages.length === 0 || messages.length > 30) {
+      res.status(400).json({ error: 'Messages must be a non-empty array with a maximum of 30 items.' });
       return;
     }
 
-    // Determine target model based on user selection or complexity
-    let targetModel = model;
+    // Validate each message content: string with max 4000 characters
+    for (const m of messages) {
+      if (!m || typeof m.content !== 'string' || m.content.length > 4000) {
+        res.status(400).json({ error: 'Each message must have a string content with a maximum of 4000 characters.' });
+        return;
+      }
+    }
+
+    // Ignore client model unless it is in the allowlist; otherwise default to gemini-3.8-flash
+    let targetModel = (typeof model === 'string' && ALLOWED_CHAT_MODELS.includes(model))
+      ? model
+      : 'gemini-3.8-flash';
+
     if (taskComplexity === 'complex') {
       targetModel = 'gemini-4-argon';
     } else if (taskComplexity === 'fast') {
       targetModel = 'gemini-3.1-flash-lite';
-    } else if (!targetModel) {
-      targetModel = 'gemini-3.8-flash';
     }
 
     let systemInstruction = `
@@ -348,7 +406,7 @@ Always reference this specific plant when answering questions unless the user ex
       parts: [{ text: m.content }],
     }));
 
-    // Cascade models if target model fails (e.g. 503 high demand or 429 quota)
+    // Cascade models if target model fails (e.g. high demand or quota)
     const fallbackList = [
       targetModel,
       'gemini-3.1-flash-lite',
@@ -372,7 +430,6 @@ Always reference this specific plant when answering questions unless the user ex
         break;
       } catch (err: any) {
         lastError = err;
-        // Quiet fallback to next candidate
       }
     }
 
@@ -390,7 +447,7 @@ Always reference this specific plant when answering questions unless the user ex
   } catch (error: any) {
     console.error('Error in botanical chat:', error);
     res.status(500).json({
-      error: error?.message || 'Chat service encountered an error. Please try again.',
+      error: 'Chat service encountered an error. Please try again.',
     });
   }
 });
@@ -410,7 +467,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
+    const distPath = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.resolve(distPath, 'index.html'));

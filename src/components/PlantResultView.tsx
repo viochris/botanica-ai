@@ -5,7 +5,6 @@ import {
   Sprout,
   Thermometer,
   CloudRain,
-  Sparkles,
   AlertTriangle,
   CheckCircle2,
   BookmarkPlus,
@@ -15,9 +14,7 @@ import {
   ShieldAlert,
   Scissors,
   Layers,
-  HelpCircle,
   Printer,
-  Heart,
   Check,
 } from 'lucide-react';
 import { PlantIdentificationData } from '../types';
@@ -27,6 +24,8 @@ interface PlantResultViewProps {
   plantData: PlantIdentificationData;
   photoUrl?: string;
   presetBadge?: string;
+  modelUsed?: string;
+  isPreset?: boolean;
   onAddToGarden: (plantData: PlantIdentificationData, photoUrl?: string) => void;
   onAskBotanist: (plantData: PlantIdentificationData) => void;
   onScanAnother: () => void;
@@ -37,6 +36,8 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
   plantData,
   photoUrl,
   presetBadge,
+  modelUsed,
+  isPreset = false,
   onAddToGarden,
   onAskBotanist,
   onScanAnother,
@@ -159,6 +160,14 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
         </div>
       </div>
 
+      {/* Visible AI Disclaimer */}
+      <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 sm:p-3.5 flex items-start gap-2.5 text-xs text-amber-900 shadow-2xs">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+        <p className="leading-relaxed">
+          AI-generated information. Diagnosis and pet-toxicity details may be inaccurate; consult a vet or plant specialist before acting.
+        </p>
+      </div>
+
       {/* Floating Action Bar on Mobile Phones (Thumb Zone above bottom nav) */}
       <div className="md:hidden fixed bottom-16 left-0 right-0 z-30 p-2.5 bg-white/95 backdrop-blur-md border-t border-stone-200 shadow-lg flex items-center gap-2 px-3">
         <button
@@ -222,7 +231,9 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
                 <span aria-hidden="true">·</span>
                 <span>Plantae</span>
                 <span aria-hidden="true">·</span>
-                <span>Analyzed by Gemini 4 Argon</span>
+                <span className="font-semibold text-emerald-800">
+                  {isPreset ? 'Sample data (not AI-analyzed)' : `Analyzed by ${modelUsed || 'AI'}`}
+                </span>
               </div>
 
               <div>
@@ -467,7 +478,7 @@ export const PlantResultView: React.FC<PlantResultViewProps> = ({
           {/* 8. Toxicity & Pet Safety */}
           <div className="bg-white p-5 rounded-xl border border-stone-200 space-y-3 shadow-xs lg:col-span-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider">08 · Toxicity & Safety (ASPCA Standards)</span>
+              <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider">08 · Toxicity & Safety (Pet & Human Guidance)</span>
               <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-600">
                 <ShieldAlert className="w-4 h-4" />
               </div>

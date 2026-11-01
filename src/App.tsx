@@ -12,8 +12,8 @@ import { BotanistChat } from './components/BotanistChat';
 import { MyGarden } from './components/MyGarden';
 import { CareGuides } from './components/CareGuides';
 import { SAMPLE_PLANTS } from './data/samplePlants';
-import { PlantIdentificationData, SavedGardenPlant, SamplePlantPreset } from './types';
-import { Sprout } from 'lucide-react';
+import { PlantIdentificationData, SavedGardenPlant, SamplePlantPreset, ChatMessage } from './types';
+import { Sprout, AlertCircle, X } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'scan' | 'garden' | 'chat' | 'guides'>('scan');
@@ -21,13 +21,26 @@ export default function App() {
     data: PlantIdentificationData;
     photoUrl?: string;
     presetBadge?: string;
+    modelUsed?: string;
+    isPreset?: boolean;
   } | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
-  // Chat focus context
+  // Chat focus context & lifted messages state across tab switches
   const [chatPlantContext, setChatPlantContext] = useState<PlantIdentificationData | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => [
+    {
+      id: 'welcome-1',
+      role: 'model',
+      content:
+        "Hello, green thumb! I'm **Dr. Flora**, your master horticulturist and botanical companion. Whether you're troubleshooting yellowing foliage, designing an organic potting blend, planning seasonal pruning, or caring for your windowsill collection, I'm here to help. What's growing in your world today?",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      modelUsed: 'gemini-3.8-flash',
+    },
+  ]);
 
   // User's saved garden collection (persisted to localStorage)
   const [gardenPlants, setGardenPlants] = useState<SavedGardenPlant[]>(() => {
@@ -71,20 +84,24 @@ export default function App() {
     ];
   });
 
-  // Save to localStorage on garden changes
+  // Save to localStorage on garden changes with visible user warning on failure
   useEffect(() => {
     try {
       localStorage.setItem('botanica_garden_plants', JSON.stringify(gardenPlants));
+      setStorageWarning(null);
     } catch (e) {
-      console.error('Failed to persist garden plants:', e);
+      console.error('Failed to persist garden plants to localStorage:', e);
+      setStorageWarning('Warning: Could not save plant collection to browser storage. Storage quota may be exceeded.');
     }
   }, [gardenPlants]);
 
   // Handle successful plant identification from scanner
-  const handleScanComplete = (data: PlantIdentificationData, photoUrl?: string) => {
+  const handleScanComplete = (data: PlantIdentificationData, photoUrl?: string, modelUsed?: string) => {
     setCurrentResult({
       data,
       photoUrl,
+      modelUsed,
+      isPreset: false,
     });
     setChatPlantContext(data);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -95,6 +112,7 @@ export default function App() {
     setCurrentResult({
       data: preset.data,
       presetBadge: preset.svgBadge,
+      isPreset: true,
     });
     setChatPlantContext(preset.data);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -109,7 +127,7 @@ export default function App() {
       photoUrl,
       photoType: photoUrl ? 'custom' : 'preset',
       dateAdded: new Date().toISOString(),
-      lastWatered: new Date().toISOString(), // watered today upon adding
+      lastWatered: new Date().toISOString(),
       waterIntervalDays: plantData.careInstructions.watering.daysInterval || 7,
       location: 'Indoor Window',
     };
@@ -128,13 +146,18 @@ export default function App() {
     );
   };
 
-  // Mark all plants due for watering as watered
+  // Mark ONLY plants due or overdue for watering as watered
   const handleWaterAll = () => {
+    const now = Date.now();
     setGardenPlants((prev) =>
-      prev.map((plant) => ({
-        ...plant,
-        lastWatered: new Date().toISOString(),
-      }))
+      prev.map((plant) => {
+        const last = new Date(plant.lastWatered).getTime();
+        const daysSinceWatered = Math.floor((now - last) / (1000 * 60 * 60 * 24));
+        const isDueOrOverdue = (plant.waterIntervalDays - daysSinceWatered) <= 0;
+        return isDueOrOverdue
+          ? { ...plant, lastWatered: new Date().toISOString() }
+          : plant;
+      })
     );
   };
 
@@ -148,6 +171,7 @@ export default function App() {
     setCurrentResult({
       data: plantData,
       photoUrl,
+      isPreset: !photoUrl,
     });
     setChatPlantContext(plantData);
     setActiveTab('scan');
@@ -178,6 +202,23 @@ export default function App() {
         onQuickScanClick={handleQuickScanClick}
       />
 
+      {/* Visible LocalStorage warning banner if persistence fails */}
+      {storageWarning && (
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2.5 text-xs text-rose-900 flex items-center justify-between">
+          <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span className="font-medium">{storageWarning}</span>
+            <button
+              onClick={() => setStorageWarning(null)}
+              className="ml-auto p-1 text-rose-600 hover:text-rose-900"
+              title="Dismiss warning"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Content Viewport with mobile thumb padding */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-10 pb-24 md:pb-12">
         {/* Tab 1: Plant Scanner & Care Result View */}
@@ -188,6 +229,8 @@ export default function App() {
                 plantData={currentResult.data}
                 photoUrl={currentResult.photoUrl}
                 presetBadge={currentResult.presetBadge}
+                modelUsed={currentResult.modelUsed}
+                isPreset={currentResult.isPreset}
                 onAddToGarden={handleAddToGarden}
                 onAskBotanist={handleAskBotanist}
                 onScanAnother={() => setCurrentResult(null)}
@@ -223,9 +266,11 @@ export default function App() {
           />
         )}
 
-        {/* Tab 3: Multi-turn Botanist Chat ("Dr. Flora") */}
+        {/* Tab 3: Multi-turn Botanist Chat ("Dr. Flora") with persistent messages state */}
         {activeTab === 'chat' && (
           <BotanistChat
+            messages={chatMessages}
+            setMessages={setChatMessages}
             currentPlantContext={chatPlantContext}
             onClearPlantContext={() => setChatPlantContext(null)}
           />
@@ -246,9 +291,18 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 text-stone-600">
-            <span>Powered by Gemini 4 Argon & Gemini 3.8 Flash</span>
+            <span>Powered by Gemini</span>
             <span aria-hidden="true">·</span>
-            <span>ASPCA Pet Toxicity Standards</span>
+            <span>AI-generated guidance</span>
+            <span aria-hidden="true">·</span>
+            <a
+              href="https://github.com/viochris/botanica-ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-stone-700 hover:text-emerald-700 underline underline-offset-2 transition-colors font-medium"
+            >
+              GitHub
+            </a>
           </div>
         </div>
       </footer>

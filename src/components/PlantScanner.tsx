@@ -1,14 +1,12 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Upload,
   Camera,
-  RotateCcw,
   Sparkles,
   AlertCircle,
   FileText,
   Search,
   CheckCircle2,
-  Video,
   X,
 } from 'lucide-react';
 import { SAMPLE_PLANTS } from '../data/samplePlants';
@@ -16,12 +14,43 @@ import { PlantIdentificationData, SamplePlantPreset } from '../types';
 import { PlantIllustration } from './PlantIllustration';
 
 interface PlantScannerProps {
-  onScanComplete: (data: PlantIdentificationData, photoUrl?: string) => void;
+  onScanComplete: (data: PlantIdentificationData, photoUrl?: string, modelUsed?: string) => void;
   onSelectSamplePreset: (preset: SamplePlantPreset) => void;
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
   errorMessage: string | null;
   setErrorMessage: (msg: string | null) => void;
+}
+
+// Client-side image resizing helper (max 1024px side, JPEG 0.8 quality)
+function resizeImage(dataUrl: string, maxDimension = 1024, quality = 0.8): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 export const PlantScanner: React.FC<PlantScannerProps> = ({
@@ -33,7 +62,6 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
   setErrorMessage,
 }) => {
   const [dragActive, setDragActive] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [userNotes, setUserNotes] = useState('');
   const [analysisMode, setAnalysisMode] = useState<'general' | 'health'>('general');
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -46,10 +74,29 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
 
   const loadingSteps = [
     'Scanning leaf venation & structural morphology...',
-    'Consulting Gemini 4 Argon botanical vision engine...',
+    'Consulting Gemini botanical vision engine...',
     'Analyzing leaf chlorophyll, margins & potential pathogens...',
     'Synthesizing tailored sunlight, watering & soil care guide...',
   ];
+
+  // Stop camera tracks helper
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraActive(false);
+  }, []);
+
+  // Ensure camera streams are cleaned up on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
 
   // Camera start with automatic fallback to native device camera capture
   const startCamera = async () => {
@@ -69,12 +116,14 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch((playErr) => {
+          console.warn('Video playback was prevented or interrupted:', playErr);
+        });
       }
     } catch (err: any) {
       console.warn('Live camera stream not permitted, falling back to native capture dialog:', err?.message || err);
       setIsCameraActive(false);
-      // Fallback: Trigger device camera dialog directly (doesn't require iframe media permissions)
+      // Fallback: Trigger device camera dialog directly
       if (cameraInputRef.current) {
         cameraInputRef.current.click();
       } else {
@@ -83,17 +132,55 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
     }
   };
 
-  // Stop camera
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+  // Process image with server backend
+  const processImage = async (imageBase64: string) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    setLoadingStep(0);
+
+    const stepInterval = setInterval(() => {
+      setLoadingStep((prev) => (prev < loadingSteps.length - 1 ? prev + 1 : prev));
+    }, 1800);
+
+    try {
+      const notesWithMode = analysisMode === 'health'
+        ? `Focus primarily on leaf health, spotting diseases, pest damage, and corrective treatment. Additional notes: ${userNotes}`
+        : userNotes;
+
+      const response = await fetch('/api/identify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64,
+          mimeType: 'image/jpeg',
+          userNotes: notesWithMode,
+        }),
+      });
+
+      clearInterval(stepInterval);
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Server returned error (${response.status})`);
+      }
+
+      const result = await response.json();
+      if (!result.data || !result.data.commonName) {
+        throw new Error('Could not identify plant clearly. Please try another angle or closer shot.');
+      }
+
+      onScanComplete(result.data, imageBase64, result.modelUsed);
+    } catch (err: any) {
+      clearInterval(stepInterval);
+      console.error('Scan error:', err);
+      setErrorMessage(err.message || 'Plant analysis failed. Please try again with a clear photo.');
+    } finally {
+      setIsLoading(false);
     }
-    setIsCameraActive(false);
   };
 
-  // Snap photo from webcam
-  const capturePhoto = () => {
+  // Snap photo from webcam and resize
+  const capturePhoto = async () => {
     if (!videoRef.current) return;
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth || 640;
@@ -101,13 +188,14 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const rawDataUrl = canvas.toDataURL('image/jpeg', 0.9);
     stopCamera();
-    setPreviewUrl(dataUrl);
-    processImage(dataUrl);
+
+    const resizedUrl = await resizeImage(rawDataUrl, 1024, 0.8);
+    processImage(resizedUrl);
   };
 
-  // Handle file drop & select
+  // Handle file drop & select and resize
   const handleFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
       setErrorMessage('Please select a valid image file (JPEG, PNG, WEBP).');
@@ -115,10 +203,10 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
     }
     setErrorMessage(null);
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setPreviewUrl(result);
-      processImage(result);
+    reader.onload = async (e) => {
+      const rawResult = e.target?.result as string;
+      const resized = await resizeImage(rawResult, 1024, 0.8);
+      processImage(resized);
     };
     reader.readAsDataURL(file);
   };
@@ -141,53 +229,6 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
       handleFile(e.dataTransfer.files[0]);
     }
   }, []);
-
-  // Process image with server backend
-  const processImage = async (imageBase64: string) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    setLoadingStep(0);
-
-    // Cycle through loading steps for realistic feedback
-    const stepInterval = setInterval(() => {
-      setLoadingStep((prev) => (prev < loadingSteps.length - 1 ? prev + 1 : prev));
-    }, 1800);
-
-    try {
-      const notesWithMode = analysisMode === 'health'
-        ? `Focus primarily on leaf health, spotting diseases, pest damage, and corrective treatment. Additional notes: ${userNotes}`
-        : userNotes;
-
-      const response = await fetch('/api/identify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64,
-          userNotes: notesWithMode,
-        }),
-      });
-
-      clearInterval(stepInterval);
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Server returned error (${response.status})`);
-      }
-
-      const result = await response.json();
-      if (!result.data || !result.data.commonName) {
-        throw new Error('Could not identify plant clearly. Please try another angle or closer shot.');
-      }
-
-      onScanComplete(result.data, imageBase64);
-    } catch (err: any) {
-      clearInterval(stepInterval);
-      console.error('Scan error:', err);
-      setErrorMessage(err.message || 'Plant analysis failed. Please try again with a clear photo.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div className="space-y-10">
@@ -405,7 +446,7 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
         </div>
       </div>
 
-      {/* Instant Sample Plants Playground: Swipeable on mobile! */}
+      {/* Instant Sample Plants Playground */}
       <div className="max-w-6xl mx-auto space-y-3 sm:space-y-4">
         <div className="flex items-center justify-between gap-2 border-b border-stone-200 pb-2.5 px-1 sm:px-0">
           <div>
@@ -421,7 +462,6 @@ export const PlantScanner: React.FC<PlantScannerProps> = ({
           </span>
         </div>
 
-        {/* Mobile: Horizontal scrollable swipe strip; Desktop: Grid */}
         <div className="flex sm:grid sm:grid-cols-3 lg:grid-cols-6 gap-3 overflow-x-auto pb-3 pt-1 snap-x -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-none">
           {SAMPLE_PLANTS.map((plant) => (
             <div

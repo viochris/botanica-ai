@@ -3,15 +3,9 @@ import {
   Droplets,
   Plus,
   Trash2,
-  Calendar,
   Check,
-  AlertCircle,
   ExternalLink,
   Search,
-  Filter,
-  Sparkles,
-  MapPin,
-  Clock,
 } from 'lucide-react';
 import { SavedGardenPlant, PlantIdentificationData } from '../types';
 import { PlantIllustration } from './PlantIllustration';
