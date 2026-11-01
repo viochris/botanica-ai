@@ -1,0 +1,8 @@
+{
+  "name": "Botanica AI - Plant Identifier & Care Assistant",
+  "description": "Identify plant species from photos with precision AI, diagnose leaf health, get personalized care instructions, and chat with an expert botanist.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
