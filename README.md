@@ -12,6 +12,7 @@
 [![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
 [![Gemini API](https://img.shields.io/badge/Google_Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/viochris/badge.svg)](https://hub.xerj.org/contributors/viochris)
 
 <br />
 
